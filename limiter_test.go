@@ -49,6 +49,8 @@ func TestLimiter(t *testing.T) {
 }
 
 func TestLimiter2(t *testing.T) {
+	// 启动补充令牌循环
+	Limiter.StartRefillLoop()
 	// 模拟一些请求
 	for i := 1; i <= 100; i++ {
 		// 假设每个请求需要一定时间处理
@@ -70,6 +72,9 @@ func TestLimiter2(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	Limiter = golimiter.NewGoLimiter(5, 5)
+
+	// 启动补充令牌循环
+	Limiter.StartRefillLoop()
 
 	m.Run()
 }

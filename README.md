@@ -3,6 +3,11 @@
 ## 简介
 `golimiter` 包提供了一个基于令牌桶算法实现的限流器。
 
+## Installation
+```
+go get github.com/onestar-p/go-limiter
+```
+
 ## 使用方法
 ```go
 package main
@@ -11,12 +16,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/your/package/golimiter"
+	golimiter "github.com/onestar-p/go-limiter"
 )
 
 func main() {
 	// 创建一个新的限流器实例，限制请求数为 10 次/秒，桶大小为 100
 	limiter := golimiter.NewGoLimiter(10, 100)
+
+	// 启动补充令牌循环
+	limiter.StartRefillLoop()
 
 	// 模拟一些请求
 	for i := 1; i <= 100; i++ {

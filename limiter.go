@@ -7,28 +7,26 @@ import (
 )
 
 type GoLimiter struct {
-	rate       int        // 请求评率限制
-	burst      int        // 桶大小（允许突发的请求数量）
-	mtx        sync.Mutex // 互斥锁
-	currTokens int        // 当前可用的令牌数量
-	lastUpdate time.Time  // 上次更新令牌数量的时间
-	ctx        context.Context
-	cancel     context.CancelFunc
+	rate        int                // 请求评率限制
+	burst       int                // 桶大小（允许突发的请求数量）
+	mtx         sync.Mutex         // 互斥锁
+	currTokens  int                // 当前可用的令牌数量
+	lastUpdated time.Time          // 上次更新令牌数量的时间
+	ctx         context.Context    // 上下文
+	cancel      context.CancelFunc // 取消函数
+	refillCh    chan struct{}      // 补充令牌的通道
 }
 
-// rate：请求评率限制，单位为每秒请求数
-// burst：桶大小
-// 返回一个新的限流器实例指针
 func NewGoLimiter(rate, burst int) *GoLimiter {
 	l := &GoLimiter{
-		rate:       rate,
-		burst:      burst,
-		currTokens: burst,
-		lastUpdate: time.Now(),
+		rate:        rate,
+		burst:       burst,
+		currTokens:  burst,
+		lastUpdated: time.Now(),
+		refillCh:    make(chan struct{}),
 	}
 
 	l.ctx, l.cancel = context.WithCancel(context.Background())
-
 	go l.run()
 
 	return l
@@ -43,7 +41,10 @@ func (l *GoLimiter) run() {
 		case <-l.ctx.Done():
 			return
 		case <-ticker.C:
-			l.refill()
+			select {
+			case l.refillCh <- struct{}{}:
+			default:
+			}
 		}
 	}
 }
@@ -52,7 +53,7 @@ func (l *GoLimiter) refill() {
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
 
-	elapsed := time.Since(l.lastUpdate)
+	elapsed := time.Since(l.lastUpdated)
 	tokensToAdd := int(float64(elapsed.Nanoseconds()) / float64(time.Second.Nanoseconds()) * float64(l.rate))
 
 	if l.currTokens+tokensToAdd > l.burst {
@@ -61,10 +62,14 @@ func (l *GoLimiter) refill() {
 		l.currTokens += tokensToAdd
 	}
 
-	l.lastUpdate = time.Now()
+	l.lastUpdated = time.Now()
 }
 
 func (l *GoLimiter) Allow(curr int) bool {
+	if curr <= 0 {
+		return false
+	}
+
 	l.mtx.Lock()
 	defer l.mtx.Unlock()
 
@@ -76,6 +81,22 @@ func (l *GoLimiter) Allow(curr int) bool {
 	return false
 }
 
+func (l *GoLimiter) StartRefillLoop() {
+	go l.refillLoop()
+}
+
+func (l *GoLimiter) refillLoop() {
+	for {
+		select {
+		case <-l.refillCh:
+			l.refill()
+		case <-l.ctx.Done():
+			return
+		}
+	}
+}
+
 func (l *GoLimiter) StopLimiter() {
 	l.cancel()
+	close(l.refillCh)
 }
